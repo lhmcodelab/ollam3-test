@@ -78,42 +78,11 @@ async def preload_model():
     except Exception as e:
         print(f"모델 preload 실패: {e}")
 
-# 일반 generate 엔드포인트 (스트리밍 없이 전체 응답)
 @app.get("/chat")
-async def generate(word : str, request : Request):
-    try:
-        response = await ollama.AsyncClient().generate(
-            model=MODEL,
-            prompt=word,
-            options={"temperature": 1},
-            keep_alive=-1  # 필요 시 후속 요청에서도 유지
-        )
-        return templates.TemplateResponse("chat.html",
-                                      context={"request": request,
-                                               "result" : response["response"]
-                                               })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# 스트리밍 엔드포인트 (실시간 토큰 반환, 더 빠른 체감)
-from fastapi.responses import StreamingResponse
-
-@app.get("/stream")
-async def stream(word : str):
-    return StreamingResponse(stream_generate(word), media_type="text/event-stream")
-
-async def stream_generate(prompt: str):
-    stream = await ollama.AsyncClient().generate(
-        model=MODEL,
-        prompt=prompt,
-        stream=True,
-        keep_alive=-1
-    )
-    async for part in stream:
-        # "이 값을 내보내고, 여기서 잠깐 멈춰. 다음에 다시 불러주면 이어서 할게!"
-        # ollama로 부터 받은 조각마다 보내..
-        yield part["response"]
+def chat(request: Request, word : str):
+    print('서버에서 받은 내용', word)
+    result = Ollama_client(word)
+    return templates.TemplateResponse("chat.html", context={"request": request, "result":result})
 
 # if __name__ == '__main__':
 #     uvicorn.run("app.main:app", host='127.0.0.1', port=8000, reload=True)
