@@ -7,7 +7,8 @@ import requests
 # 동시에 호출 받을 것이면 http
 # Ollama 기본 설정
 OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "llama3:latest"
+# DEFAULT_MODEL = "llama3:latest"
+DEFAULT_MODEL = "gemma3:4b"
 
 def Ollama_client(word : str):
     if not word or word.strip() == "":
