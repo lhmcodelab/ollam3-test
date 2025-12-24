@@ -172,9 +172,54 @@
       document.getElementById(resultElementId).innerHTML = `<div class="error">오류: ${msg}</div>`;
     }
 
+      // 페이지 로드 시 기존 대화 기록 불러오기
+      async function loadChatHistory2() {
+        //axios 로그인한 사람이 채팅한 정보를 요청해서 받아 오자.
+        response = await axios.get("chat-history/default")
+        history2 = response.data.history
+        console.log(history2)
+
+        //받아온 데이터로 chatBox에 넣자
+        chatBox =document.getElementById("chatBox")
+
+        //화면에 있으면 내용 한번 채우자.
+        chatBox.innerHTML = ""
+
+        //스타일을 다르게 넣어 주어야하므로  user, ai 구분해서 넣어 주자.
+        for (msg of history2) {
+            if(msg.role === "user") {
+                chatBox.innerHTML += `<div class="chat-message user"><strong>나:</strong> ${msg.content}</div>`
+            } else if (msg.role === "assistant") {
+                chatBox.innerHTML += `<div class="chat-message ai"><strong>AI:</strong> ${msg.content}</div>`
+            }
+        }
+        chatBox.scrollTop = chatBox.scrollHeight
+      }
+
+     // 페이지 로드 완료 시 히스토리 불러오기
+      window.onload = function() {
+        loadChatHistory2();
+      };
+
     // 1. 챗봇
     function sendChat() {
+        // chatInput 에 입력된 값 가지고 오기
+        input = document.getElementById('chatInput')
+        message = input.value.trim() // 양쪽 공백 제거
+        // 입력값이 없으면 함수 중단.
+        if(!message) return
 
+        // 내가 입력한 값 - 채팅내용을 chatBox에 올리자
+        chatBox = document.getElementById('chatBox')
+        chatBox.innerHTML += `<div class="chat-message  user"><strong>나 :</strong> ${message}</div>`
+        chatBox.scrollTop = chatBox.scrollHeight;
+        // axios로 내가 입력 한 값을 서버로 보내자
+        axios.post("/chat", {message, session_id: "default"}).then(res => {
+            //http 응답을 받으면 실행되는 부분.
+            chatBox.innerHTML += `<div class="chat-message ai"><strong>AI :</strong> ${res.data.response}</div>`
+            chatBox.scrollTop = chatBox.scrollHeight;
+        })
+        input.value = "" //입력창 지우기
 
     }
 

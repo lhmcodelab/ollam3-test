@@ -10,6 +10,8 @@ from ollama_client import Ollama_client
 import ollama
 # 스트리밍 엔드포인트 (실시간 토큰 반환, 더 빠른 체감)
 from fastapi.responses import StreamingResponse
+from redis.asyncio import Redis  # redis-py의 async 클라이언트
+import json
 
 # 응답을 JSON으로 해주는 부품을 만들자
 # BaseModel의 모든 변수 함수를 확장해서 사용 상속
@@ -22,6 +24,11 @@ class HealthResponse(BaseModel):
 MODEL = "gemma3:1b"
 
 app = FastAPI()
+
+# Redis 설정 (로컬 개발 기준, 프로덕션에서는 환경변수로 관리)
+REDIS_URL = "redis://localhost:6379"
+# 앱 상태에 Redis 클라이언트 저장
+app.state.redis = None
 
 # Static 파일 설정 (CSS, JS, 이미지 등)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -77,8 +84,19 @@ async def preload_model():
             keep_alive=-1  # -1: 영구적으로 메모리에 유지
         )
         print(f"{MODEL} 모델이 미리 로드되었습니다. (메모리에 영구 유지)")
+
+        # decode_responses 바이트 스트림을 utf-8로 만들어줌
+        app.state.redis = Redis.from_url(url=REDIS_URL, decode_responses=True)
+        print(f"{REDIS_URL}로 Redis 서버 미리 연결됨.")
     except Exception as e:
-        print(f"모델 preload 실패: {e}")
+        print(f"모델 preload 실패 또는 Redis 연결 실패 : {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if app.state.redis:
+        await app.state.redis.close()
+        print(f"Redis 서버 종료.")
 
 # 일반 generate 엔드포인트 (스트리밍 없이 전체 응답)
 @app.get("/chat")
@@ -298,6 +316,70 @@ async def names(request : NameRequest):
     print("-----------------------")
     print(response)  # dict
     return {'names': response['response'].strip()}
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str = "default" # 로그인 한 아이디
+    # redis에 키를 chat_history: 로그인id로 만들어줌
+    # 키 생성 예제 : id apple 경우 : chat_history:apple => unique 해야함
+
+# redis 연결 후
+@app.post("/chat")
+async def name(request : ChatRequest):
+    print(f"서버에 전달된 값은 {request.message}, {request.session_id}")
+    history = []
+    user_message = f""" '{request.message}', 간단하게 대답해줘  """
+    # 내가 쓴 것은 role : 'user'
+    # 응답은 role:assstant
+    # ollama 질문 [{}]
+    history.append({"role": "user", "content": request.message})
+
+    response = await ollama.AsyncClient().chat(
+        model=MODEL,
+        messages=history,
+        keep_alive=-1
+    )
+    print("-----------------------")
+    print(response)  # dict
+    ai_message = f"""
+        {response['message']['content']}
+    """
+    history.append({"role": "assistant", "content": ai_message})
+    print("chat history", history)
+
+    ## redis에 넣자
+    session_key = "chat_history:"+request.session_id
+    # history가 있으면 넣자
+    redis = app.state.redis
+    if history:
+        # redis에는 json으로 넣어 주어야햐 한다.
+        # dict를 가지고 있다 -> json으로 바꾸어 주자
+        # json.dumps(dict)
+        await redis.rpush(session_key, *[json.dumps(one) for one in history])
+
+    return {"response": response['message']['content'].strip()}
+
+
+@app.get("/chat-history/{session_id}")
+async def chat_history(session_id: str):
+    # 1. 레디스가 연결이 안되어 있으면 500 번 에러
+    redis = app.state.redis
+    if not redis: #  None 이면
+        raise HTTPException(status_code=500, detail="Redis 연결 안됨.")
+        # http 응답을 보내버리고 http 만들어서 응답하고 끝!
+    # 2. 레디스가 연결이 되어 있으면
+    print(session_id)
+    session_key = 'chat_history:'+session_id
+    # redis.lrange() 리스트 불러오자
+    hostory_json = await  redis.lrange(session_key, 0, -1)
+    print(hostory_json) ## [ '{}', '{}'] ==> [{}, {}]
+    # for 문으로 만들어야 함
+    hostory = [json.loads(msg) for msg in hostory_json]
+    print("***************************************")
+    print(hostory)
+    return {"history" : hostory}
+
 
 # if __name__ == '__main__':
 #     uvicorn.run("app.main:app", host='127.0.0.1', port=8000, reload=True)
