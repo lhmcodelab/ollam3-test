@@ -10,3 +10,8 @@ huggingface_hub==0.26.2
 Jinja2
 ollama
 redis==5.2.0
+
+# chroma-db
+chromadb==0.5.23
+pymupdf
+python-multipart
